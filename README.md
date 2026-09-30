@@ -105,3 +105,34 @@ Planned only: live meteorological/track ingestion and direct Earth Engine server
 - Existing scenario inputs, score weights, asset fixtures and original tests are preserved. No real Earth Engine export or placeholder masquerading as one was added to the data directory.
 #   C y c l o n e S h i e l d - A I  
  
+## Vercel deployment and redeployment
+
+The production entrypoint is `server.mjs`: its **default export is an async Node `(req, res)` request handler**. It does not create a server or bind a port on import. Vercel detects the root server entrypoint and invokes this handler for incoming requests. The previous named `http.Server` export was not a supported entrypoint and caused `Invalid export found in module "/var/task/server.mjs"` before routing could run.
+
+Local startup is separate: `scripts/local-server.mjs` creates the HTTP server and listens on `HOST`/`PORT`. Both `npm start` and `npm run dev` use it. The reusable handler retains all existing API and static routes; `/favicon.ico` serves the existing SVG with its correct image content type. Vercel may serve files in `public/` directly; the handler also serves them when invoked. `vercel.json` only includes frontend files and optional Earth Engine exports in the function bundle. There are no catch-all rewrites, legacy builders, or duplicate `api/` function entrypoints.
+
+Use the repository root as the Vercel project root, a supported Node 22+ runtime, and automatic Node server detection (no unrelated framework preset or custom output-directory override). Build remains `npm run build`; it checks syntax and generates no `dist/` directory. Remove any previously configured dashboard routing/output overrides that conflict with this architecture. This repository had no `vercel.json` before this fix.
+
+Runtime constraints:
+
+- Set optional `GEMINI_API_KEY`/`GEMINI_MODEL` in Vercel Environment Variables for the intended Production/Preview environment, then redeploy. Never commit `.env`. Missing credentials preserve the template fallback. `HOST`/`PORT` apply only to the local launcher.
+- Vercel code/bundled data are read-only. Incident receipts use the OS temporary directory when `VERCEL=1`, are explicitly marked `durable: false`, and are **not persistent across invocations, cold starts, instances or deployments**. A warm instance may retain scratch files; no retention is guaranteed. Deduplication remains instance-local. The browser removes acknowledged queue entries as before; a Vercel demo receipt is not a durable backup or emergency delivery. Use an external transactional store before relying on delivery.
+- Earth Engine imports are read-only deployment assets. If genuine exports are required in production, supply `data/earthengine/grid.geojson`, `manifest.geojson`, and optional `preview.png` to the deployment build context through an appropriate controlled data workflow. `data/` is gitignored, so a Git deployment does not automatically receive local files. Do not add incident JSONL files or credentials to the deployment. Absent exports retain the labeled synthetic fallback; no runtime upload or Earth Engine authentication was added.
+- The service worker and browser offline queue are unchanged. Test a fresh browser session after redeployment to avoid confusing cached pages with the current deployment.
+
+Validate and commit from the repository root:
+
+```sh
+npm test
+npm run build
+npm run lint
+git add server.mjs scripts/local-server.mjs package.json vercel.json test/scenario.test.mjs test/runtime.test.mjs README.md
+git commit -m "Fix Vercel Node handler export and separate local startup"
+git push
+```
+
+For a linked Git deployment, pushing the configured production branch triggers redeployment; otherwise use Vercel's dashboard to redeploy this commit. With an installed, authenticated CLI linked to the correct project, `vercel --prod` is the alternative deployment command. Do not deploy an old cached commit.
+
+Optional CLI checks: `vercel dev --listen 3001`, then inspect `/`, `/favicon.ico`, `/app.js`, `/style.css`, `/sw.js`, `/api/status`, `/api/earthengine`, and `POST /api/advisory` with `{"language":"English","step":3}`. The CLI was not installed in the repair environment, so `vercel dev` and a deployed production invocation were not verified. Local tests exercise the default handler over real HTTP, import without port binding, parsed/streamed request bodies, and temporary Vercel incident receipts. After redeploying, verify these same routes against the deployment URL and confirm runtime logs no longer report invalid exports.
+
+Runtime reference: [Vercel Node.js runtime](https://vercel.com/docs/functions/runtimes/node-js). Node request/response handlers do not require `server.listen()` in Vercel.

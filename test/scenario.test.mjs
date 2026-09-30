@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inside,exposed,scenario,advisory,assets} from '../public/scenario.js';
-import {server} from '../server.mjs';
+import http from 'node:http';
+import handler from '../server.mjs';
+const server=http.createServer(handler);
 test('polygon containment and road crossing without contained endpoints',()=>{const p=[[0,0],[2,0],[2,2],[0,2]];assert.equal(inside([1,1],p),true);assert.equal(inside([3,1],p),false);assert.equal(exposed({geometry:[[-1,1],[3,1]]},p),true);});
 test('exposure is calculated from geometry with transparent scores',()=>{for(let i=0;i<=6;i++){const s=scenario(i);assert.equal(s.rows.length,assets.length);assert.equal(s.affected,s.rows.filter(a=>a.rainfall||a.stormSurge).length);for(const a of s.rows)assert.equal(a.score,Math.min(100,(a.rainfall?35:0)+(a.stormSurge?45:0)+((a.rainfall||a.stormSurge)?a.vulnerability*4:0)));}assert.ok(scenario(3).affected>scenario(0).affected);});
 test('all localized templates retain scenario values and review requirement',()=>{for(const language of ['English','Odia','Hindi']){const text=advisory(language,3);assert.ok(text.includes(String(scenario(3).affected)));assert.ok(text.includes('Human review required'));}});
